@@ -1,7 +1,10 @@
-import discord
 import os
+from dotenv import load_dotenv
+import discord
 
-TOKEN = os.environ["DISCORD_TOKEN"]
+load_dotenv()  # ← .env を読み込む
+
+TOKEN = os.getenv("DISCORD_TOKEN")
 
 TARGET_INVITE_CODE = "BvCXSBWC4J"      # 招待コードのみ
 ROLE_ID = 1458833025017319515          # 付与するロール
