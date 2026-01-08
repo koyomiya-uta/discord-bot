@@ -1,24 +1,38 @@
 import os
 import discord
 from discord.ext import commands
-from keep_alive import keep_alive  # スリープ防止用
+import threading
+from flask import Flask
 
 # RenderのEnvironment Variablesから取得
 TOKEN = os.environ['DISCORD_TOKEN']
 
-TARGET_INVITE_CODE = "BvCXSBWC4J"      # 招待コード
-ROLE_ID = 1458833025017319515           # 付与するロールID
-LOG_CHANNEL_ID = 1071513357879873556    # ログ送信先チャンネルID
+TARGET_INVITE_CODE = "BvCXSBWC4J"
+ROLE_ID = 1458833025017319515
+LOG_CHANNEL_ID = 1071513357879873556
 
 intents = discord.Intents.all()
 client = discord.Client(intents=intents)
 
 invite_cache = {}
 
+# ----- Flaskでポートバインド -----
+app = Flask("")
+
+@app.route("/")
+def home():
+    return "Bot is running!"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
+
+threading.Thread(target=run_flask).start()
+# ---------------------------
+
 @client.event
 async def on_ready():
     print(f'Logged in as {client.user}')
-
     await client.change_presence(
         activity=discord.Game(name="DMで「バナナ」って送ってみてね")
     )
@@ -50,7 +64,6 @@ async def on_member_join(member):
             await member.add_roles(role)
             role_given = True
 
-    # ログ送信
     log_channel = guild.get_channel(LOG_CHANNEL_ID)
     if log_channel:
         embed = discord.Embed(
@@ -65,22 +78,15 @@ async def on_member_join(member):
             inline=False
         )
         embed.set_footer(text=f"User ID: {member.id}")
-
         await log_channel.send(embed=embed)
 
 @client.event
 async def on_message(message):
     if message.author.bot:
         return
-
-    # DMのみ反応
     if message.guild is not None:
         return
-
     if message.content.startswith(("バナナ", "ばなな")):
         await message.channel.send("わーいバナナバナナ( ᐛ )")
-
-# Flaskでスリープ防止
-keep_alive()
 
 client.run(TOKEN)
