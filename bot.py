@@ -1,13 +1,13 @@
 import os
-from dotenv import load_dotenv
 import discord
+from discord.ext import commands
+from keep_alive import keep_alive  # スリープ防止用
 
-load_dotenv()  # ← .env を読み込む
+# RenderのEnvironment Variablesから取得
+TOKEN = os.environ['DISCORD_TOKEN']
 
-TOKEN = os.getenv("DISCORD_TOKEN")
-
-TARGET_INVITE_CODE = "BvCXSBWC4J"      # 招待コードのみ
-ROLE_ID = 1458833025017319515          # 付与するロール
+TARGET_INVITE_CODE = "BvCXSBWC4J"      # 招待コード
+ROLE_ID = 1458833025017319515           # 付与するロールID
 LOG_CHANNEL_ID = 1071513357879873556    # ログ送信先チャンネルID
 
 intents = discord.Intents.all()
@@ -79,5 +79,8 @@ async def on_message(message):
 
     if message.content.startswith(("バナナ", "ばなな")):
         await message.channel.send("わーいバナナバナナ( ᐛ )")
+
+# Flaskでスリープ防止
+keep_alive()
 
 client.run(TOKEN)
