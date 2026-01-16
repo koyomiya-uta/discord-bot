@@ -119,24 +119,34 @@ async def check_youtube():
     feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={YOUTUBE_CHANNEL_ID}"
     feed = feedparser.parse(feed_url)
 
+    youtube_live = False
+
     if not feed.entries:
-        youtube_live = False
         return
 
     latest = feed.entries[0]
+
+    # 配信かどうか判定
+    live_type = latest.get("yt_live_broadcast", "")
+
+    if live_type != "live":
+        return
+
     video_id = latest.yt_videoid
+    youtube_live = True
 
     if video_id != last_youtube_id:
         last_youtube_id = video_id
-        youtube_live = True
 
         channel = client.get_channel(YOUTUBE_NOTIFY_CHANNEL_ID)
-        await channel.send(
-            f"@視聴者\n"
-            f"🔴 **YouTube配信開始！**\n"
-            f"📺 {latest.title}\n"
-            f"https://youtube.com/watch?v={video_id}"
-        )
+        if channel:
+            await channel.send(
+                f"@視聴者\n"
+                f"🔴 **YouTube配信開始！**\n"
+                f"📺 {latest.title}\n"
+                f"https://youtube.com/watch?v={video_id}"
+            )
+
 
 async def youtube_loop():
     await client.wait_until_ready()
