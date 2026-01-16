@@ -4,6 +4,7 @@ import asyncio
 import aiohttp
 import feedparser
 import threading
+import random
 from flask import Flask
 
 # =========================
@@ -23,7 +24,7 @@ LOG_CHANNEL_ID = 1071513357879873556
 TWITCH_USERNAME = "koyomiya_uta"
 TWITCH_NOTIFY_CHANNEL_ID = 1071513357879873556
 
-YOUTUBE_HANDLE = "koyomiya_uta"
+YOUTUBE_CHANNEL_ID = "UCDmi8pYwLaXxnhg_GXTL0PQ"
 YOUTUBE_NOTIFY_CHANNEL_ID = 1071513357879873556
 
 # =========================
@@ -41,7 +42,7 @@ def home():
     return "Bot is running!"
 
 def run_flask():
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
 threading.Thread(target=run_flask).start()
@@ -110,14 +111,16 @@ async def twitch_loop():
 # YouTube
 # =========================
 last_youtube_id = None
+youtube_live = False
 
 async def check_youtube():
-    global last_youtube_id
+    global last_youtube_id, youtube_live
 
-    feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={get_channel_id()}"
+    feed_url = f"https://www.youtube.com/feeds/videos.xml?channel_id={YOUTUBE_CHANNEL_ID}"
     feed = feedparser.parse(feed_url)
 
     if not feed.entries:
+        youtube_live = False
         return
 
     latest = feed.entries[0]
@@ -125,8 +128,9 @@ async def check_youtube():
 
     if video_id != last_youtube_id:
         last_youtube_id = video_id
-        channel = client.get_channel(YOUTUBE_NOTIFY_CHANNEL_ID)
+        youtube_live = True
 
+        channel = client.get_channel(YOUTUBE_NOTIFY_CHANNEL_ID)
         await channel.send(
             f"@視聴者\n"
             f"🔴 **YouTube配信開始！**\n"
@@ -134,15 +138,27 @@ async def check_youtube():
             f"https://youtube.com/watch?v={video_id}"
         )
 
-def get_channel_id():
-    url = f"https://www.youtube.com/@{YOUTUBE_HANDLE}"
-    feed = feedparser.parse(url)
-    return feed.feed.get("yt_channelid")
-
 async def youtube_loop():
     await client.wait_until_ready()
     while not client.is_closed():
         await check_youtube()
+        await asyncio.sleep(60)
+
+# =========================
+# Presence
+# =========================
+async def presence_loop():
+    await client.wait_until_ready()
+
+    while not client.is_closed():
+        if twitch_live:
+            text = "🟣 Twitchで配信中！"
+        elif youtube_live:
+            text = "🔴 YouTubeで配信中！"
+        else:
+            text = "DMで会話ができるよ！"
+
+        await client.change_presence(activity=discord.Game(name=text))
         await asyncio.sleep(60)
 
 # =========================
@@ -152,16 +168,13 @@ async def youtube_loop():
 async def on_ready():
     print(f"Logged in as {client.user}")
 
-    await client.change_presence(
-        activity=discord.Game(name="DMで「バナナ」って送ってみてね")
-    )
-
     for guild in client.guilds:
         invites = await guild.invites()
         invite_cache[guild.id] = {i.code: i.uses for i in invites}
 
     client.loop.create_task(twitch_loop())
     client.loop.create_task(youtube_loop())
+    client.loop.create_task(presence_loop())
 
 @client.event
 async def on_member_join(member):
@@ -196,11 +209,60 @@ async def on_member_join(member):
 async def on_message(message):
     if message.author.bot:
         return
+
+    # DMのみ反応
     if message.guild is not None:
         return
 
-    if message.content.startswith(("バナナ", "ばなな")):
-        await message.channel.send("わーいバナナバナナ( ᐛ )")
+    content = message.content.lower()
 
+    replies = {
+        "バナナ": [
+            "わーいバナナバナナ( ᐛ )",
+            "バナナ最高 🍌",
+            "うほっ🦍",
+        ],
+        "ばなな": [
+            "わーいバナナバナナ( ᐛ )",
+            "ばなな最高 🍌",
+            "うほっ🦍",
+        ],
+        "おはよう": [
+            "おはよう！",
+            "今日もがんばろー！",
+            "おはよ〜🦊",
+        ],
+        "こんにちは": [
+            "こんにちは〜！",
+            "やっほー！",
+            "お昼ご飯何にする？",
+        ],
+        "こんにちわ": [
+            "こんにちわ〜！",
+            "やっほー！",
+            "お昼ご飯何にする？",
+        ],
+        "こんばんわ": [
+            "こんばんわ～！",
+            "晩御飯何にする？",
+            "お腹すいた",
+        ],
+        "こんばんは": [
+            "こんばんは～！",
+            "晩御飯何にする？",
+            "お腹すいた",
+        ],
+        "疲れた": [
+            "お疲れさま 🍵",
+            "無理しないでね",
+            "少し休もうぜ",
+            "いっぱい寝よう",
+        ],
+    }
+
+    for key, reply_list in replies.items():
+        if key in content:
+            await message.channel.send(random.choice(reply_list))
+            return
 # =========================
 client.run(TOKEN)
