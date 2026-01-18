@@ -6,6 +6,7 @@ import feedparser
 import threading
 import random
 from flask import Flask
+from discord.ui import View, Button
 
 # =========================
 # 環境変数
@@ -26,6 +27,8 @@ TWITCH_NOTIFY_CHANNEL_ID = 1276391580512550912
 
 YOUTUBE_CHANNEL_ID = "UCDmi8pYwLaXxnhg_GXTL0PQ"
 YOUTUBE_NOTIFY_CHANNEL_ID = 1276391580512550912
+
+MENTION_ROLE_ID = 1026874804470558802
 
 # =========================
 intents = discord.Intents.all()
@@ -85,18 +88,33 @@ async def check_twitch():
             data = await resp.json()
 
     channel = client.get_channel(TWITCH_NOTIFY_CHANNEL_ID)
+    mention = f"<@&{MENTION_ROLE_ID}>"
 
     if data["data"]:
         if not twitch_live:
             twitch_live = True
             stream = data["data"][0]
             title = stream["title"]
+            thumb = stream["thumbnail_url"].replace("{width}", "1280").replace("{height}", "720")
+
+            embed = discord.Embed(
+                title="🟣 Twitch 配信開始！",
+                description=f"**{title}**",
+                color=discord.Color.purple()
+            )
+            embed.add_field(name="配信者", value=TWITCH_USERNAME, inline=True)
+            embed.add_field(name="Platform", value="Twitch", inline=True)
+            embed.set_image(url=thumb)
+            embed.set_footer(text="狐夜宮うた Live Notification")
+
+            view = View()
+            view.add_item(Button(label="▶ 配信を見る", url=f"https://twitch.tv/{TWITCH_USERNAME}"))
 
             await channel.send(
-                f"@視聴者\n"
-                f"🟣 **Twitch配信開始！**\n"
-                f"📺 {title}\n"
-                f"https://twitch.tv/{TWITCH_USERNAME}"
+                content=mention,
+                embed=embed,
+                view=view,
+                allowed_mentions=discord.AllowedMentions(roles=True)
             )
     else:
         twitch_live = False
@@ -125,28 +143,40 @@ async def check_youtube():
         return
 
     latest = feed.entries[0]
+    video_id = latest.yt_videoid
+    link = latest.link
 
-    # 配信かどうか判定
-    live_type = latest.get("yt_live_broadcast", "")
-
-    if live_type != "live":
+    if "/live" not in link:
         return
 
-    video_id = latest.yt_videoid
     youtube_live = True
 
     if video_id != last_youtube_id:
         last_youtube_id = video_id
 
         channel = client.get_channel(YOUTUBE_NOTIFY_CHANNEL_ID)
+        mention = f"<@&{MENTION_ROLE_ID}>"
+
+        embed = discord.Embed(
+            title="🔴 YouTube 配信開始！",
+            description=f"**{latest.title}**",
+            color=discord.Color.red()
+        )
+        embed.add_field(name="配信者", value="狐夜宮うた", inline=True)
+        embed.add_field(name="Platform", value="YouTube", inline=True)
+        embed.set_image(url=f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg")
+        embed.set_footer(text="狐夜宮うた Live Notification")
+
+        view = View()
+        view.add_item(Button(label="▶ 配信を見る", url=f"https://youtube.com/watch?v={video_id}"))
+
         if channel:
             await channel.send(
-                f"@視聴者\n"
-                f"🔴 **YouTube配信開始！**\n"
-                f"📺 {latest.title}\n"
-                f"https://youtube.com/watch?v={video_id}"
+                content=mention,
+                embed=embed,
+                view=view,
+                allowed_mentions=discord.AllowedMentions(roles=True)
             )
-
 
 async def youtube_loop():
     await client.wait_until_ready()
@@ -219,60 +249,25 @@ async def on_member_join(member):
 async def on_message(message):
     if message.author.bot:
         return
-
-    # DMのみ反応
     if message.guild is not None:
         return
 
     content = message.content.lower()
 
     replies = {
-        "バナナ": [
-            "わーいバナナバナナ( ᐛ )",
-            "バナナ最高 🍌",
-            "うほっ🦍",
-        ],
-        "ばなな": [
-            "わーいバナナバナナ( ᐛ )",
-            "ばなな最高 🍌",
-            "うほっ🦍",
-        ],
-        "おはよう": [
-            "おはよう！",
-            "今日もがんばろー！",
-            "おはよ〜🦊",
-        ],
-        "こんにちは": [
-            "こんにちは〜！",
-            "やっほー！",
-            "お昼ご飯何にする？",
-        ],
-        "こんにちわ": [
-            "こんにちわ〜！",
-            "やっほー！",
-            "お昼ご飯何にする？",
-        ],
-        "こんばんわ": [
-            "こんばんわ～！",
-            "晩御飯何にする？",
-            "お腹すいた",
-        ],
-        "こんばんは": [
-            "こんばんは～！",
-            "晩御飯何にする？",
-            "お腹すいた",
-        ],
-        "疲れた": [
-            "お疲れさま 🍵",
-            "無理しないでね",
-            "少し休もうぜ",
-            "いっぱい寝よう",
-        ],
+        "バナナ": ["わーいバナナバナナ( ᐛ )", "バナナ最高 🍌", "うほっ🦍"],
+        "ばなな": ["わーいバナナバナナ( ᐛ )", "ばなな最高 🍌", "うほっ🦍"],
+        "おはよう": ["おはよう！", "今日もがんばろー！", "おはよ〜🦊"],
+        "こんにちは": ["こんにちは〜！", "やっほー！", "お昼ご飯何にする？"],
+        "こんばんわ": ["こんばんわ～！", "晩御飯何にする？", "お腹すいた"],
+        "こんばんは": ["こんばんは～！", "晩御飯何にする？", "お腹すいた"],
+        "疲れた": ["お疲れさま 🍵", "無理しないでね", "少し休もうぜ", "いっぱい寝よう"],
     }
 
     for key, reply_list in replies.items():
         if key in content:
             await message.channel.send(random.choice(reply_list))
             return
+
 # =========================
 client.run(TOKEN)
