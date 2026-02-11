@@ -6,7 +6,6 @@ import feedparser
 import threading
 import random
 from flask import Flask
-from discord.ui import View, Button
 
 # =========================
 # 環境変数
@@ -30,9 +29,17 @@ YOUTUBE_NOTIFY_CHANNEL_ID = 1276391580512550912
 
 MENTION_ROLE_ID = 1026874804470558802
 
+JOIN_ENABLED = False
+
 # =========================
 intents = discord.Intents.all()
-client = discord.Client(intents=intents)
+
+class MyClient(discord.Client):
+    def __init__(self, *, intents):
+        super().__init__(intents=intents)
+        self.tree = discord.app_commands.CommandTree(self)
+
+client = MyClient(intents=intents)
 invite_cache = {}
 
 # =========================
@@ -95,27 +102,20 @@ async def check_twitch():
             twitch_live = True
             stream = data["data"][0]
             title = stream["title"]
-            thumb = stream["thumbnail_url"].replace("{width}", "1280").replace("{height}", "720")
 
-            embed = discord.Embed(
-                title="🟣 Twitch 配信開始！",
-                description=f"**{title}**",
-                color=discord.Color.purple()
-            )
-            embed.add_field(name="配信者", value=TWITCH_USERNAME, inline=True)
-            embed.add_field(name="Platform", value="Twitch", inline=True)
-            embed.set_image(url=thumb)
-            embed.set_footer(text="狐夜宮うた Live Notification")
+            join_text = "👥 参加型：ON" if JOIN_ENABLED else "👥 参加型：OFF"
 
-            view = View()
-            view.add_item(Button(label="▶ 配信を見る", url=f"https://twitch.tv/{TWITCH_USERNAME}"))
+            text = f"""{mention}
+🟣 **Twitch配信開始！**
 
-            await channel.send(
-                content=mention,
-                embed=embed,
-                view=view,
-                allowed_mentions=discord.AllowedMentions(roles=True)
-            )
+📺 **{title}**
+
+{join_text}
+
+🔗 https://twitch.tv/{TWITCH_USERNAME}
+"""
+
+            await channel.send(content=text, allowed_mentions=discord.AllowedMentions(roles=True))
     else:
         twitch_live = False
 
@@ -157,26 +157,20 @@ async def check_youtube():
         channel = client.get_channel(YOUTUBE_NOTIFY_CHANNEL_ID)
         mention = f"<@&{MENTION_ROLE_ID}>"
 
-        embed = discord.Embed(
-            title="🔴 YouTube 配信開始！",
-            description=f"**{latest.title}**",
-            color=discord.Color.red()
-        )
-        embed.add_field(name="配信者", value="狐夜宮うた", inline=True)
-        embed.add_field(name="Platform", value="YouTube", inline=True)
-        embed.set_image(url=f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg")
-        embed.set_footer(text="狐夜宮うた Live Notification")
+        join_text = "👥 参加型：ON" if JOIN_ENABLED else "👥 参加型：OFF"
 
-        view = View()
-        view.add_item(Button(label="▶ 配信を見る", url=f"https://youtube.com/watch?v={video_id}"))
+        text = f"""{mention}
+🔴 **YouTube配信開始！**
+
+📺 **{latest.title}**
+
+{join_text}
+
+🔗 https://youtube.com/watch?v={video_id}
+"""
 
         if channel:
-            await channel.send(
-                content=mention,
-                embed=embed,
-                view=view,
-                allowed_mentions=discord.AllowedMentions(roles=True)
-            )
+            await channel.send(content=text, allowed_mentions=discord.AllowedMentions(roles=True))
 
 async def youtube_loop():
     await client.wait_until_ready()
@@ -202,11 +196,36 @@ async def presence_loop():
         await asyncio.sleep(60)
 
 # =========================
+# Slash Command
+# =========================
+@client.tree.command(name="join", description="参加型のON / OFF")
+@discord.app_commands.describe(mode="on または off")
+async def join(interaction: discord.Interaction, mode: str):
+    global JOIN_ENABLED
+
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ 管理者のみ使用できます。", ephemeral=True)
+        return
+
+    if mode.lower() == "on":
+        JOIN_ENABLED = True
+        await interaction.response.send_message("✅ 参加型を **ON** にしました。")
+
+    elif mode.lower() == "off":
+        JOIN_ENABLED = False
+        await interaction.response.send_message("❌ 参加型を **OFF** にしました。")
+
+    else:
+        await interaction.response.send_message("on か off を指定してください。", ephemeral=True)
+
+# =========================
 # Discord Events
 # =========================
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user}")
+
+    await client.tree.sync()
 
     for guild in client.guilds:
         invites = await guild.invites()
@@ -217,51 +236,16 @@ async def on_ready():
     client.loop.create_task(presence_loop())
 
 @client.event
-async def on_member_join(member):
-    guild = member.guild
-    invites = await guild.invites()
-
-    before = invite_cache.get(guild.id, {})
-    after = {i.code: i.uses for i in invites}
-    invite_cache[guild.id] = after
-
-    used_invite_code = "不明"
-    for code, uses in after.items():
-        if code in before and uses > before[code]:
-            used_invite_code = code
-            break
-
-    role_given = False
-    if used_invite_code == TARGET_INVITE_CODE:
-        role = guild.get_role(ROLE_ID)
-        if role:
-            await member.add_roles(role)
-            role_given = True
-
-    log_channel = guild.get_channel(LOG_CHANNEL_ID)
-    embed = discord.Embed(title="📥 メンバー参加ログ", color=discord.Color.green())
-    embed.add_field(name="ユーザー", value=member.mention, inline=False)
-    embed.add_field(name="招待コード", value=used_invite_code, inline=False)
-    embed.add_field(name="ロール", value="✅" if role_given else "❌", inline=False)
-    await log_channel.send(embed=embed)
-
-@client.event
 async def on_message(message):
-    if message.author.bot:
-        return
-    if message.guild is not None:
+    if message.author.bot or message.guild is not None:
         return
 
     content = message.content.lower()
 
     replies = {
         "バナナ": ["わーいバナナバナナ( ᐛ )", "バナナ最高 🍌", "うほっ🦍"],
-        "ばなな": ["わーいバナナバナナ( ᐛ )", "ばなな最高 🍌", "うほっ🦍"],
         "おはよう": ["おはよう！", "今日もがんばろー！", "おはよ〜🦊"],
-        "こんにちは": ["こんにちは〜！", "やっほー！", "お昼ご飯何にする？"],
-        "こんばんわ": ["こんばんわ～！", "晩御飯何にする？", "お腹すいた"],
-        "こんばんは": ["こんばんは～！", "晩御飯何にする？", "お腹すいた"],
-        "疲れた": ["お疲れさま 🍵", "無理しないでね", "少し休もうぜ", "いっぱい寝よう"],
+        "疲れた": ["お疲れさま 🍵", "無理しないでね", "少し休もうぜ"],
     }
 
     for key, reply_list in replies.items():
